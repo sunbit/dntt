@@ -27,6 +27,7 @@ from calendar import monthrange
 from datetime import date
 from datetime import datetime
 from datetime import timedelta
+from pathlib import Path
 from typing import Callable
 from typing import Optional
 
@@ -39,16 +40,8 @@ class TrackerApp:
         self.page = page
         self.config_service = ConfigService()
         self.config: Config = self.config_service.load()
-        self.absence_storage = AbsenceStorage()
-        stored_absences = self.absence_storage.load_all()
-        if stored_absences:
-            self.config.absences = stored_absences
-        else:
-            self.config.absences = getattr(self.config, "absences", [])
-            if self.config.absences:
-                self._persist_absences()
-        self.absence_retriever = ConfigAbsenceRetriever(self.config)
-        self.state = TrackerState(EntryStorage())
+        self.data_dir: Path = self.config_service.resolve_data_dir(self.config)
+        self._setup_storage()
         self.selected_date = date.today()
 
         # Controls we'll update later
@@ -96,6 +89,7 @@ class TrackerApp:
         self.config_workday_checkboxes: list[ft.Checkbox] = []
         self.config_summary_mode_group: ft.RadioGroup | None = None
         self.config_status_text: ft.Text | None = None
+        self.config_data_dir_field: ft.TextField | None = None
         self._summary_cache: dict[str, tuple[float, float] | None] = {
             "week": None,
             "month": None,
@@ -140,6 +134,20 @@ class TrackerApp:
         self.refresh_all()
         self._start_ticker()
 
+    def _setup_storage(self) -> None:
+        entries_dir = self.data_dir / "entries"
+        absences_dir = self.data_dir / "absences"
+        self.absence_storage = AbsenceStorage(base_dir=absences_dir)
+        stored_absences = self.absence_storage.load_all()
+        if stored_absences:
+            self.config.absences = stored_absences
+        else:
+            self.config.absences = getattr(self.config, "absences", [])
+            if self.config.absences:
+                self._persist_absences()
+        self.absence_retriever = ConfigAbsenceRetriever(self.config)
+        self.state = TrackerState(EntryStorage(base_dir=entries_dir))
+
     # ------------------------------------------------------------------
     def refresh_all(self) -> None:
         now = datetime.now()
@@ -172,6 +180,8 @@ class TrackerApp:
             self.config_hours_field.value = str(self.config.hours_per_day)
         if self.config_summary_mode_group is not None:
             self.config_summary_mode_group.value = self.config.summary_expected_mode.value
+        if self.config_data_dir_field is not None:
+            self.config_data_dir_field.value = str(self.data_dir)
         workdays = set(self.config.workdays)
         for checkbox in self.config_workday_checkboxes:
             checkbox.value = checkbox.data in workdays
@@ -332,6 +342,10 @@ class TrackerApp:
     # ------------------------------------------------------------------
     # UI factories
     # Week helpers (legacy history controls removed)
+
+    def _persist_absences(self) -> None:
+        self.config.absences.sort(key=lambda r: (r.start, r.end or r.start, r.reason))
+        self.absence_storage.save_rules(self.config.absences)
 
     def _on_timer_tick(self) -> None:
         today_view.refresh(self, datetime.now())

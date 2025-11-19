@@ -93,6 +93,11 @@ def build(app: TrackerApp) -> ft.Container:
         value=app.config.summary_expected_mode.value,
         content=ft.Column(spacing=0, controls=summary_mode_rows),
     )
+    app.config_data_dir_field = ft.TextField(
+        label="Data folder path",
+        value=str(app.data_dir),
+        width=520,
+    )
     app.config_status_text = ft.Text("", size=12, color=SECONDARY_GRAY, text_align=ft.TextAlign.CENTER)
     buttons = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
@@ -163,6 +168,39 @@ def build(app: TrackerApp) -> ft.Container:
                         spacing=6,
                         controls=[
                             ft.Text(
+                                "Data storage",
+                                size=15,
+                                weight=ft.FontWeight.W_600,
+                            ),
+                            ft.Text(
+                                "Set the folder where entries and absences JSON files are stored. "
+                                "Enter an absolute path or clear the field to fall back to the default.",
+                                size=12,
+                                color=SECONDARY_GRAY,
+                            ),
+                        ],
+                    ),
+                    app.config_data_dir_field,
+                    ft.Text(
+                        "Current path is shown even when using the default location.",
+                        size=11,
+                        color=SECONDARY_GRAY,
+                    ),
+                ],
+            ),
+        ),
+        ft.Container(
+            padding=ft.padding.all(20),
+            bgcolor=WHITE,
+            border=ft.border.all(1, BORDER_GRAY),
+            border_radius=12,
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    ft.Column(
+                        spacing=6,
+                        controls=[
+                            ft.Text(
                                 "Summary target mode",
                                 size=15,
                                 weight=ft.FontWeight.W_600,
@@ -215,7 +253,11 @@ def build(app: TrackerApp) -> ft.Container:
 
 
 def _handle_save_config(app: TrackerApp, _: ft.ControlEvent) -> None:
-    if app.config_hours_field is None or app.config_summary_mode_group is None:
+    if (
+        app.config_hours_field is None
+        or app.config_summary_mode_group is None
+        or app.config_data_dir_field is None
+    ):
         return
     raw_hours = (app.config_hours_field.value or "").strip()
     if not raw_hours:
@@ -240,16 +282,36 @@ def _handle_save_config(app: TrackerApp, _: ft.ControlEvent) -> None:
         summary_mode = SummaryExpectedMode(mode_value)
     except ValueError:
         summary_mode = SummaryExpectedMode.FULL_PERIOD
+    data_dir_raw = (app.config_data_dir_field.value or "").strip()
+    default_data_dir = app.config_service.default_data_dir()
+    data_dir_override = None
+    if data_dir_raw:
+        try:
+            resolved_data_dir = app.config_service.normalize_data_dir(data_dir_raw)
+        except Exception as exc:  # noqa: BLE001
+            _set_config_status(app, f"Invalid data folder: {exc}", is_error=True)
+            return
+        if resolved_data_dir != default_data_dir:
+            data_dir_override = resolved_data_dir
 
+    previous_data_dir = app.data_dir
     app.config.hours_per_day = hours_value
     app.config.workdays = selected_workdays
     app.config.summary_expected_mode = summary_mode
+    app.config.data_dir = data_dir_override
 
     try:
         app.config_service.save(app.config)
     except Exception as exc:  # noqa: BLE001
         _set_config_status(app, f"Failed to save: {exc}", is_error=True)
         return
+
+    new_data_dir = app.config_service.resolve_data_dir(app.config)
+    if new_data_dir != previous_data_dir:
+        app.data_dir = new_data_dir
+        app.editing_entry_id = None
+        app._draft_entry = None
+        app._setup_storage()
 
     _set_config_status(app, "Configuration saved.", is_error=False)
     app.refresh_all()

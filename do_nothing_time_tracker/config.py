@@ -8,12 +8,26 @@ from pathlib import Path
 
 import json
 
+DEFAULT_DATA_DIR = Path("data")
+
 
 class ConfigService:
     """Loads and exposes workday configuration."""
 
     def __init__(self, path: Path | str = "config.json") -> None:
         self.path = Path(path)
+
+    def default_data_dir(self) -> Path:
+        return self.normalize_data_dir(DEFAULT_DATA_DIR)
+
+    def normalize_data_dir(self, value: Path | str) -> Path:
+        path = Path(value).expanduser()
+        return path.resolve()
+
+    def resolve_data_dir(self, config: Config) -> Path:
+        if config.data_dir:
+            return self.normalize_data_dir(config.data_dir)
+        return self.default_data_dir()
 
     def load(self) -> Config:
         if not self.path.exists():
@@ -40,22 +54,26 @@ class ConfigService:
         except ValueError:
             summary_mode = SummaryExpectedMode.FULL_PERIOD
 
+        data_dir_raw = payload.get("data_dir")
+        data_dir = self.normalize_data_dir(data_dir_raw) if data_dir_raw else None
+
         return Config(
             hours_per_day=hours_per_day,
             workdays=list(workdays),
             absences=absences,
             summary_expected_mode=summary_mode,
+            data_dir=data_dir,
         )
 
     def save(self, config: Config) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = serialize_config(config)
+        payload = serialize_config(config, default_data_dir=self.default_data_dir())
         with self.path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
 
 
-def serialize_config(config: Config) -> dict:
-    return {
+def serialize_config(config: Config, *, default_data_dir: Path | None = None) -> dict:
+    payload = {
         "hours_per_day": config.hours_per_day,
         "workdays": config.workdays,
         "summary_expected_mode": config.summary_expected_mode.value,
@@ -69,3 +87,9 @@ def serialize_config(config: Config) -> dict:
             for rule in config.absences
         ],
     }
+    if config.data_dir:
+        resolved_value = Path(config.data_dir).expanduser().resolve()
+        default_value = default_data_dir.resolve() if default_data_dir else None
+        if default_value is None or resolved_value != default_value:
+            payload["data_dir"] = str(resolved_value)
+    return payload

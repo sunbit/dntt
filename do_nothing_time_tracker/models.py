@@ -5,6 +5,7 @@ from dataclasses import field
 from datetime import date
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -79,6 +80,7 @@ class Config:
     workdays: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     absences: List[AbsenceRule] = field(default_factory=list)
     summary_expected_mode: SummaryExpectedMode = SummaryExpectedMode.FULL_PERIOD
+    data_dir: Path | None = None
 
 
 @dataclass

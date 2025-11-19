@@ -516,8 +516,7 @@ def _delete_absence(app: TrackerApp, index: int) -> None:
 
 
 def _persist_absences(app: TrackerApp) -> None:
-    app.config.absences.sort(key=lambda r: (r.start, r.end or r.start, r.reason))
-    app.absence_storage.save_rules(app.config.absences)
+    app._persist_absences()
 
 
 def _close_absence_editor(app: TrackerApp) -> None:

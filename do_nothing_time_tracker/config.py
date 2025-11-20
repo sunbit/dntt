@@ -7,14 +7,31 @@ from datetime import date
 from pathlib import Path
 
 import json
+import os
+import sys
 
-DEFAULT_DATA_DIR = Path("data")
+APP_NAME = "DoNothingTimeTracker"
+
+
+def _default_app_support_dir() -> Path:
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+    else:
+        base = Path(os.getenv("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    return base / APP_NAME
+
+
+DEFAULT_STORAGE_ROOT = _default_app_support_dir()
+DEFAULT_DATA_DIR = DEFAULT_STORAGE_ROOT / "data"
+DEFAULT_CONFIG_PATH = DEFAULT_STORAGE_ROOT / "config.json"
 
 
 class ConfigService:
     """Loads and exposes workday configuration."""
 
-    def __init__(self, path: Path | str = "config.json") -> None:
+    def __init__(self, path: Path | str = DEFAULT_CONFIG_PATH) -> None:
         self.path = Path(path)
 
     def default_data_dir(self) -> Path:
@@ -30,10 +47,14 @@ class ConfigService:
         return self.default_data_dir()
 
     def load(self) -> Config:
-        if not self.path.exists():
+        source_path = self.path
+        legacy_path = Path("config.json")
+        if not source_path.exists() and legacy_path.exists() and legacy_path != source_path:
+            source_path = legacy_path
+        if not source_path.exists():
             return Config()
 
-        with self.path.open("r", encoding="utf-8") as handle:
+        with source_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
 
         absences = [
